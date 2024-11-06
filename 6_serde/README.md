@@ -58,92 +58,177 @@ fn main() {
 
 ### 2. Десеріалізація з файлу
 
-**Завдання**: Створіть файл `user.json` з JSON-даними та прочитайте його в структуру `User`.
+**Завдання**: Створіть файл `request.json` з JSON-даними та прочитайте його в структуру `Request`.
 
-**user.json**
+**request.json**
 
 ```json
 {
-  "name": "Марія",
-  "email": "maria@example.com",
-  "birthdate": "1995-05-15"
+  "type": "success",
+  "stream": {
+    "user_id": "8d234120-0bda-49b2-b7e0-fbd3912f6cbf",
+    "is_private": false,
+    "settings": 45345,
+    "shard_url": "https://n3.example.com/sapi",
+    "public_tariff": {
+      "id": 1,
+      "price": 100,
+      "duration": "1h",
+      "description": "test public tariff"
+    },
+    "private_tariff": {
+      "client_price": 250,
+      "duration": "1m",
+      "description": "test private tariff"
+    }
+  },
+  "gifts": [
+    {
+      "id": 1,
+      "price": 2,
+      "description": "Gift 1"
+    },
+    {
+      "id": 2,
+      "price": 3,
+      "description": "Gift 2"
+    }
+  ],
+  "debug": {
+    "duration": "234ms",
+    "at": "2019-06-28T08:35:46+00:00"
+  }
 }
 ```
 
 **Код:**
 
 ```rust
-use std::fs;
-use serde_json;
-use serde::{Serialize, Deserialize};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_yaml::to_string as to_yaml;
+use std::fs::File;
+use std::io::Read;
+use std::time::Duration;
+use toml::to_string as to_toml;
+use url::Url;
+use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct User {
-    name: String,
-    email: String,
-    birthdate: String,
+#[derive(Debug, Serialize, Deserialize)]
+struct PublicTariff {
+    id: u32,
+    price: u32,
+    #[serde(with = "humantime_serde")]
+    duration: Duration,
+    description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PrivateTariff {
+    client_price: u32,
+    #[serde(with = "humantime_serde")]
+    duration: Duration,
+    description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Stream {
+    user_id: Uuid,
+    is_private: bool,
+    settings: u32,
+    shard_url: Url,
+    public_tariff: PublicTariff,
+    private_tariff: PrivateTariff,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Gift {
+    id: u32,
+    price: u32,
+    description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Debug {
+    #[serde(with = "humantime_serde")]
+    duration: Duration,
+    at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum RequestType {
+    #[serde(rename = "success")]
+    Success,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Request {
+    #[serde(rename = "type")]
+    request_type: RequestType,
+    stream: Stream,
+    gifts: Vec<Gift>,
+    debug: Debug,
 }
 
 fn main() {
-    let data = fs::read_to_string("user.json").expect("Помилка читання файлу");
-    let user: User = serde_json::from_str(&data).expect("Помилка десеріалізації");
-    println!("Десеріалізований користувач: {:?}", user);
+    let mut file = File::open("request.json").unwrap();
+    let mut json_str = String::new();
+    file.read_to_string(&mut json_str).unwrap();
+
+    let request: Request = serde_json::from_str(&json_str).unwrap();
+
+
 }
+
+
 ```
 
 ---
 
 ### 3. Підтримка різних форматів (JSON, YAML, TOML)
 
-**Завдання**: Виконайте серіалізацію структури `User` у формат YAML і конвертуйте її назад у JSON.
+**Завдання**: Виконайте серіалізацію структури `Request` у формат YAML і TOML.
 
 ```rust
-use serde_yaml;
-
 fn main() {
-    let user = User {
-        name: "Олексій".to_string(),
-        email: "olexiy@example.com".to_string(),
-        birthdate: "1987-12-31".to_string(),
-    };
+    let mut file = File::open("request.json").unwrap();
+    let mut json_str = String::new();
+    file.read_to_string(&mut json_str).unwrap();
 
-    // Серіалізація в YAML
-    let yaml = serde_yaml::to_string(&user).expect("Помилка серіалізації у YAML");
-    println!("Серіалізований YAML:\n{}", yaml);
+    let request: Request = serde_json::from_str(&json_str).unwrap();
 
-    // Десеріалізація з YAML і серіалізація назад у JSON
-    let deserialized_user: User = serde_yaml::from_str(&yaml).expect("Помилка десеріалізації з YAML");
-    let json = serde_json::to_string(&deserialized_user).expect("Помилка серіалізації у JSON");
-    println!("Конвертований у JSON:\n{}", json);
+    let yaml_str = to_yaml(&request).unwrap();
+    println!("YAML:\n{}", yaml_str);
+
+    let toml_str = to_toml(&request).unwrap();
+    println!("TOML:\n{}", toml_str);
 }
 ```
 
 ---
 
-### 4. Використання деривацій та атрибутів
+### 4. Тестування
 
-**Завдання**: Налаштуйте кастомні атрибути `rename` та `skip` для полів структури.
+**Завдання**: Доведіть правильність своєї реалізації за допомогою тестів.
 
 ```rust
-#[derive(Serialize, Deserialize, Debug)]
-struct User {
-    #[serde(rename = "user_name")]
-    name: String,
-    email: String,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
 
-    #[serde(skip)]
-    password: String,  // Пропуститься при серіалізації
-}
+    #[test]
+    fn test() {
+        let mut file = File::open("request.json").unwrap();
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str).unwrap();
 
-fn main() {
-    let user = User {
-        name: "Наталя".to_string(),
-        email: "nataliia@example.com".to_string(),
-        password: "секрет".to_string(),
-    };
-
-    let json = serde_json::to_string(&user).expect("Помилка серіалізації");
-    println!("Серіалізований JSON без паролю: {}", json);
+        let request: Request = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(request.stream.public_tariff.id, 1);
+        assert_eq!(request.stream.private_tariff.client_price, 250);
+        assert_eq!(request.gifts.len(), 2);
+        assert_eq!(request.gifts[0].description, "Gift 1");
+    }
 }
 ```
 
@@ -155,9 +240,9 @@ fn main() {
 
 ```rust
 use serde::{Serializer, Deserializer};
-use serde::de::Error as DeError;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Event {
     name: String,
     #[serde(serialize_with = "serialize_date", deserialize_with = "deserialize_date")]
@@ -192,23 +277,5 @@ fn main() {
 
     let deserialized_event: Event = serde_json::from_str(&json).expect("Помилка десеріалізації");
     println!("Десеріалізована подія: {:?}", deserialized_event);
-}
-```
-
----
-
-### 6. Обробка помилок
-
-**Завдання**: Обробіть помилки десеріалізації з кастомним повідомленням.
-
-```rust
-fn main() {
-    let invalid_json = r#"{ "name": "Олена", "email": 12345 }"#;
-
-    let user: Result<User, _> = serde_json::from_str(invalid_json);
-    match user {
-        Ok(user) => println!("Десеріалізований користувач: {:?}", user),
-        Err(e) => println!("Помилка десеріалізації: {}", e),
-    }
 }
 ```
