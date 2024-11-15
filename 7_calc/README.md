@@ -11,8 +11,9 @@
    Відкрийте `Cargo.toml` і додайте бібліотеки `pest` та `pest_derive`:
    ```toml
    [dependencies]
-   pest = "2.1"
-   pest_derive = "2.1"
+   lazy_static = "1.4.0"
+   pest = "2.6"
+   pest_derive = "2.6"
    ```
 3. **Запустіть команду збірки** для перевірки, чи все налаштовано правильно:
    ```bash
@@ -24,357 +25,405 @@
 
 ### Крок 2: Визначення граматики для арифметичних виразів
 
-1. **Створіть файл граматики**. У папці `src` створіть новий файл з назвою `calculator.pest`.
-2. **Додайте правила граматики** в цей файл:
+**Example: Calculator**
 
-   ```pest
-   WHITESPACE = _{ " " | "\t" | "\n" }
+У цьому прикладі розглядається практичний аспект використання синтаксичного аналізатора Пратта для розбору виразів з використанням `pest`.
+Для ілюстрації ми створимо синтаксичний аналізатор для простих рівнянь і побудуємо абстрактне синтаксичне дерево.
 
-   expression = _{ term ~ (("+" | "-") ~ term)* }
-   term = _{ factor ~ (("*" | "/") ~ factor)* }
-   factor = _{ primary ~ ("^" ~ primary)* }
-   primary = _{ number | "(" ~ expression ~ ")" }
+**Перевага та асоціативність**
 
-   number = @{ "-"? ~ ASCII_DIGIT+ }
-   ```
+У простому рівнянні множення і ділення обчислюються першими, що означає, що вони мають вищий пріоритет.
+Наприклад, `1 + 2 * 3` обчислюється як `1 + (2 * 3)`, якби пріоритет був рівним, то було б `(1 + 2) * 3`.
+Для нашої системи маємо наступні операнди:
 
-3. **Пояснення**:
+- найвищий пріоритет: множення та ділення
+- найнижчий пріоритет: додавання та віднімання
 
-   - `expression`: Обробляє додавання та віднімання.
-   - `term`: Обробляє множення та ділення.
-   - `factor`: Обробляє піднесення до степеня.
-   - `primary`: Визначає числа або вирази в дужках.
-   - `number`: Визначає цілі числа з необов'язковим знаком `-`.
+У виразі `1 + 2 - 3` жоден оператор не є важливішим за інший.
+Додавання, віднімання, множення та ділення обчислюються зліва направо,
+наприклад, вираз `1 - 2 + 3` обчислюється як `(1 - 2) + 3`. Ми називаємо цю властивість лівою асоціативністю.
+Оператори також можуть бути правою асоціативністю. Наприклад, ми зазвичай обчислюємо вираз `x = y = 1` спочатку
+присвоюючи спочатку `y = 1`, а потім `x = 1` (або `x = y`).
 
-### Крок 3: Перший парсер у `main.rs`
+Асоціативність має значення лише тоді, коли два оператори мають однаковий пріоритет, як у випадку з додаванням та відніманням, наприклад
+наприклад, з додаванням та відніманням. Це означає, що якщо ми маємо вираз, який містить лише додавання і віднімання, ми можемо просто обчислити його зліва направо
+зліва направо. Вираз `1 + 2 - 3` дорівнює `(1 + 2) - 3`. А `1 - 2 + 3` дорівнює `(1 - 2) + 3`.
 
-1. Відкрийте файл `src/main.rs` і імпортуйте `pest` і `pest_derive`, додавши ці рядки:
+Щоб перейти від плоского списку операндів, розділених операторами, достатньо визначити пріоритет та асоціативність для кожного
+оператора. За допомогою цих визначень алгоритм, такий як синтаксичний аналіз Пратта, може побудувати відповідний
+дерево виразів.
 
-   ```rust
-   use pest::Parser;
-   use pest_derive::Parser;
-   ```
+**Calculator example**
 
-2. **Оголосіть парсер**:
-   Додайте код, щоб оголосити структуру парсера на основі `calculator.pest`:
+We want our calculator to be able to parse simple equations that consist of integers and simple binary operators.
+Additionally, we want to support parenthesis and unary minus.
+For example:
 
-   ```rust
-   #[derive(Parser)]
-   #[grammar = "calculator.pest"] // Вказуємо шлях до файлу граматики
-   struct CalculatorParser;
-   ```
+```
+1 + 2 * 3
+-(2 + 5) * 16
+```
 
-3. **Додайте функцію `main`** для тестування парсера:
+**Grammar**
 
-   ```rust
-   fn main() {
-       let expression = "3 + 5 * (2 - 1)";
-       let parsed = CalculatorParser::parse(Rule::expression, expression)
-           .expect("Помилка парсингу")
-           .next()
-           .unwrap();
+Ми починаємо з визначення наших атомів, бітів самодостатнього синтаксису, які не можна розділити на менші частини.
+Для нашого калькулятора ми почнемо з простих цілих чисел:
 
-       println!("Розібраний вираз: {:?}", parsed);
-   }
-   ```
+```pest
+// Пробіли між цифрами не допускаються
+integer = @{ ASCII_DIGIT+ }
 
-4. **Запуск тесту**:
-   Зберігайте файл і запустіть програму:
-   ```bash
-   cargo run
-   ```
-   Ви повинні побачити структуру розібраного виразу. Якщо вона коректна, переходимо до наступного кроку.
+atom = _{ integer }
+```
 
----
+Далі, наші бінарні оператори:
 
-### Крок 4: Додайте функцію `eval` для обчислення значень
+```pest
+bin_op = _{ add | subtract | multiply | divide }
+	add = { "+" }
+	subtract = { "-" }
+	multiply = { "*" }
+	divide = { "/" }
+```
 
-1. Додайте базову структуру для функції `eval`, яка прийматиме `Pair` і оброблятиме `number`:
+Відповідно до цього формату, ми визначаємо наше правило для виразів:
 
-   ```rust
-   fn eval(expression: pest::iterators::Pair<Rule>) -> i64 {
-       match expression.as_rule() {
-           Rule::number => expression.as_str().parse().unwrap(),
-           _ => 0,
-       }
-   }
-   ```
+```pest
+expr = { atom ~ (bin_op ~ atom)* }
+```
 
-2. **Оновіть `main`** для виклику `eval`:
+І, нарешті, ми визначаємо наш `WHITESPACE` і правило рівняння:
 
-   ```rust
-   fn main() {
-       let expression = "3";
-       let parsed = CalculatorParser::parse(Rule::expression, expression)
-           .expect("Помилка парсингу")
-           .next()
-           .unwrap();
+```pest
+WHITESPACE = _{ " " }
 
-       let result = eval(parsed);
-       println!("Результат: {}", result);
-   }
-   ```
+// Ми не можемо мати SOI та EOI безпосередньо на expr, тому що він використовується
+// рекурсивно (наприклад, у круглих дужках)
+equation = _{ SOI ~ expr ~ EOI }
+```
 
-3. **Тестування**:
-   Запустіть знову:
-   ```bash
-   cargo run
-   ```
-   Ви маєте побачити, що `3` обробляється як `3`. Це базове обчислення, але код працює.
+Він визначає граматику, яка генерує необхідні вхідні дані для синтаксичного аналізатора Пратта.
 
 ---
 
-### Крок 5: Обробка додавання і віднімання
+### Крок 3: Абстрактне дерево синтаксису (AST)
 
-1. Додайте обробку `expression` для операцій `+` та `-` у `eval`:
+Ми хочемо перетворити вхідні дані в абстрактне синтаксичне дерево.
+Для цього ми визначимо наступні типи:
 
-   ```rust
-   fn eval(expression: pest::iterators::Pair<Rule>) -> i64 {
-       match expression.as_rule() {
-           Rule::expression => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "+" => result + next,
-                       "-" => result - next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::number => expression.as_str().parse().unwrap(),
-           _ => 0,
-       }
-   }
-   ```
+```rust
+#[derive(Debug)]
+pub enum Expr {
+    Integer(i32),
+    BinOp {
+        lhs: Box<Expr>,
+        op: Op,
+        rhs: Box<Expr>,
+    },
+}
 
-2. **Тестування додавання**:
+#[derive(Debug)]
+pub enum Op {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+```
 
-   - Змініть `expression` на `3 + 2`.
-   - Запустіть:
-     ```bash
-     cargo run
-     ```
-   - Перевірте, що результат коректний (має бути `5`).
+Зверніть увагу на `Box<Expr>`, оскільки Rust
+[не допускає unboxed-рекурсивні типи](https://doc.rust-lang.org/book/ch15-01-box.html#enabling-recursive-types-with-boxes).
 
-3. **Тестування віднімання**:
-   - Змініть `expression` на `7 - 3`.
-   - Переконайтеся, що результат `4`.
+Не існує окремого типу атома, будь-який атом також є допустимим виразом.
 
 ---
 
-### Крок 6: Додавання обробки множення та ділення
+### Крок 4: Pratt parser
 
-1. Додайте обробку для `term`, яка виконує множення (`*`) і ділення (`/`):
+Пріоритет операцій визначається у синтаксичному аналізаторі Пратта.
 
-   ```rust
-   fn eval(expression: pest::iterators::Pair<Rule>) -> i64 {
-       match expression.as_rule() {
-           Rule::expression => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "+" => result + next,
-                       "-" => result - next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::term => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "*" => result * next,
-                       "/" => result / next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::number => expression.as_str().parse().unwrap(),
-           _ => 0,
-       }
-   }
-   ```
+Простим підходом є визначення PrattParser як глобального за допомогою [`lazy_static`](https://docs.rs/lazy_static/1.4.0/lazy_static/).
 
-2. **Оновіть `main`** для тестування множення та ділення:
+Дотримуючись стандартних правил арифметики,
+ми визначимо, що додавання і віднімання мають нижчий пріоритет, ніж множення і ділення,
+і зробимо всі оператори лівими асоціативними.
 
-   ```rust
-   fn main() {
-       let expression = "4 * 5 / 2";
-       let parsed = CalculatorParser::parse(Rule::expression, expression)
-           .expect("Помилка парсингу")
-           .next()
-           .unwrap();
+```rust
+lazy_static::lazy_static! {
+    static ref PRATT_PARSER: PrattParser<Rule> = {
+        use pest::pratt_parser::{Assoc::*, Op};
+        use Rule::*;
 
-       let result = eval(parsed);
-       println!("Результат: {}", result);
-   }
-   ```
+        // Пріоритет визначається від найнижчого до найвищого
+        PrattParser::new()
+            // Додавання та віднімання мають однаковий пріоритет
+            .op(Op::infix(add, Left) | Op::infix(subtract, Left))
+            .op(Op::infix(multiply, Left) | Op::infix(divide, Left))
+    };
+}
+```
 
-3. **Тестування**:
-   - Запустіть:
-     ```bash
-     cargo run
-     ```
-   - Ви маєте побачити результат `10` для виразу `4 * 5 / 2`.
+Ми майже на місці, залишилося лише використати наш парсер Пратта.
+Для цього використовуються функції `map_primary`, `map_infix` та `parse`, перші дві з яких приймають функції, а третя - ітератор над парами.
+`map_primary` виконується для кожного первинника (атома), а `map_infix` виконується для кожного BinOp з його новою лівою частиною
+та правою частиною відповідно до правил пріоритету, визначених раніше.
+У цьому прикладі ми створюємо AST в синтаксичному аналізаторі Pratt.
 
----
+```rust
+pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
+    PRATT_PARSER
+        .map_primary(|primary| match primary.as_rule() {
+            Rule::integer => Expr::Integer(primary.as_str().parse::<i32>().unwrap()),
+            rule => unreachable!("Expr::parse expected atom, found {:?}", rule)
+        })
+        .map_infix(|lhs, op, rhs| {
+            let op = match op.as_rule() {
+                Rule::add => Op::Add,
+                Rule::subtract => Op::Subtract,
+                Rule::multiply => Op::Multiply,
+                Rule::divide => Op::Divide,
+                rule => unreachable!("Expr::parse expected infix operation, found {:?}", rule),
+            };
+            Expr::BinOp {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+            }
+        })
+        .parse(pairs)
 
-### Крок 7: Додавання обробки піднесення до степеня
+}
+```
 
-1. Додайте обробку для `factor`, яка буде виконувати операцію піднесення до степеня (`^`):
+Here's an example of how to use the parser.
 
-   ```rust
-   fn eval(expression: pest::iterators::Pair<Rule>) -> i64 {
-       match expression.as_rule() {
-           Rule::expression => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "+" => result + next,
-                       "-" => result - next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::term => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "*" => result * next,
-                       "/" => result / next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::factor => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(_) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = result.pow(next as u32);
-               }
-               result
-           },
-           Rule::number => expression.as_str().parse().unwrap(),
-           _ => 0,
-       }
-   }
-   ```
+```rust
+fn main() -> io::Result<()> {
+    for line in io::stdin().lock().lines() {
+        match CalculatorParser::parse(Rule::equation, &line?) {
+            Ok(mut pairs) => {
+                println!(
+                    "Parsed: {:#?}",
+                    parse_expr(
+                        pairs.next().unwrap().into_inner()
+                    )
+                );
+            }
+            Err(e) => {
+                eprintln!("Parse failed: {:?}", e);
+            }
+        }
+    }
+    Ok(())
+}
 
-2. **Тестування піднесення до степеня**:
-   - Змініть вираз у `main` на `"2 ^ 3 ^ 2"`.
-   - Запустіть:
-     ```bash
-     cargo run
-     ```
-   - Ви маєте побачити результат `512` для виразу `2 ^ (3 ^ 2)`.
+```
+
+За допомогою цього ми можемо проаналізувати наступне просте рівняння:
+
+```
+> 1 * 2 + 3 / 4
+Parsed: BinOp {
+    lhs: BinOp {
+        lhs: Integer( 1 ),
+        op: Multiply,
+        rhs: Integer( 2 ),
+    },
+    op: Add,
+    rhs: BinOp {
+        lhs: Integer( 3 ),
+        op: Divide,
+        rhs: Integer( 4 ),
+    },
+}
+```
 
 ---
 
-### Крок 8: Додавання підтримки дужок
+### Крок 4: Унарний мінус та дужки
 
-1. У `eval`, додайте обробку `primary`, щоб обчислювати вирази в дужках:
+Поки що наш калькулятор може розбирати досить складні вирази, але він дасть збій, якщо зустріне явні круглі дужки
+або унарний знак мінус. Давайте це виправимо.
 
-   ```rust
-   fn eval(expression: pest::iterators::Pair<Rule>) -> i64 {
-       match expression.as_rule() {
-           Rule::expression => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "+" => result + next,
-                       "-" => result - next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::term => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(op) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = match op.as_str() {
-                       "*" => result * next,
-                       "/" => result / next,
-                       _ => unreachable!(),
-                   };
-               }
-               result
-           },
-           Rule::factor => {
-               let mut inner = expression.into_inner();
-               let mut result = eval(inner.next().unwrap());
-               while let Some(_) = inner.next() {
-                   let next = eval(inner.next().unwrap());
-                   result = result.pow(next as u32);
-               }
-               result
-           },
-           Rule::primary => eval(expression.into_inner().next().unwrap()),
-           Rule::number => expression.as_str().parse().unwrap(),
-           _ => unreachable!(),
-       }
-   }
-   ```
+**Дужки**
 
-2. **Тестування дужок**:
-   - Змініть вираз у `main` на `"3 + 2 * (4 + 2)"`.
-   - Запустіть:
-     ```bash
-     cargo run
-     ```
-   - Ви маєте побачити результат `15`.
+Розглянемо вираз `(1 + 2) * 3`. Очевидно, що видалення дужок дасть інший результат, тому ми повинні
+підтримувати розбір таких виразів. На щастя, це може бути простим доповненням до нашого правила `atom`:
+
+```diff
+- atom = _{ integer }
++ atom = _{ integer | "(" ~ expr ~ ")" }
+```
+
+Раніше ми говорили, що атоми повинні бути простими послідовностями токенів, які не можуть бути розбиті на частини, але тепер атом може містити
+довільні вирази! Причина, по якій нас це влаштовує, полягає в тому, що круглі дужки позначають чіткі межі для
+виразу, і не буде неоднозначно зрозуміло, які оператори належать до внутрішнього виразу, а які - до зовнішнього.
+
+**Унарний мінус**
+
+Наразі ми можемо розбирати лише натуральні числа, наприклад `16` або `2342`. Але ми також хочемо виконувати обчислення з від'ємними числами.
+Для цього ми введемо унарний мінус, таким чином ми зможемо робити `-4` і `-(8 + 15)`.
+Нам потрібна наступна зміна у граматиці:
+
+```diff
++ unary_minus = { "-" }
++ primary = _{ integer | "(" ~ expr ~ ")" }
+- atom = _{ integer | "(" ~ expr ~ ")" }
++ atom = _{ unary_minus? ~ primary }
+```
+
+Для цих останніх змін ми робимо невеликі зміни в AST і логіці парсингу (з використанням `map_prefix`).
+
+```rust
+PrattParser::new()
+    .op(Op::infix(add, Left) | Op::infix(subtract, Left))
+    .op(Op::infix(multiply, Left) | Op::infix(divide, Left) | Op::infix(modulo, Left))
+    .op(Op::prefix(unary_minus))
+```
+
+```rust
+#[derive(Debug)]
+pub enum Expr {
+    Integer(i32),
+    UnaryMinus(Box<Expr>),
+    BinOp {
+        lhs: Box<Expr>,
+        op: Op,
+        rhs: Box<Expr>,
+    },
+}
+```
+
+```rust
+.map_primary(|primary| match primary.as_rule() {
+    Rule::integer => Expr::Integer(primary.as_str().parse::<i32>().unwrap()),
+    Rule::expr => parse_expr(primary.into_inner()),
+    rule => unreachable!("Expr::parse expected atom, found {:?}", rule),
+})
+```
+
+```rust
+.map_infix(|lhs, op, rhs| {
+    let op = match op.as_rule() {
+        Rule::add => Op::Add,
+        Rule::subtract => Op::Subtract,
+        Rule::multiply => Op::Multiply,
+        Rule::divide => Op::Divide,
+        Rule::modulo => Op::Modulo,
+        rule => unreachable!("Expr::parse expected infix operation, found {:?}", rule),
+    };
+    Expr::BinOp {
+        lhs: Box::new(lhs),
+        op,
+        rhs: Box::new(rhs),
+    }
+})
+```
+
+```rust
+.map_prefix(|op, rhs| match op.as_rule() {
+    Rule::unary_minus => Expr::UnaryMinus(Box::new(rhs)),
+    _ => unreachable!(),
+})
+```
+
+```rust
+#[derive(Debug)]
+pub enum Op {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+}
+```
+
+```rust
+match CalculatorParser::parse(Rule::equation, &line?) {
+    Ok(mut pairs) => {
+        println!(
+            "Parsed: {:#?}",
+
+            parse_expr(pairs.next().unwrap().into_inner())
+        );
+    }
+    Err(e) => {
+        eprintln!("Parse failed: {:?}", e);
+    }
+}
+```
+
+Щоб реалізувати математичні обчислення для виразів, які парсить наш калькулятор, потрібно написати функцію, яка буде рекурсивно обчислювати значення для дерева синтаксичного розбору `Expr`.
 
 ---
 
-### Крок 9: Остаточна реалізація з підтримкою командного рядка
+### Крок 5: Додати функцію `evaluate`
 
-1. Відредагуйте `main` для обробки аргументів командного рядка:
-
-   ```rust
-   fn main() {
-       let args: Vec<String> = std::env::args().collect();
-       if args.len() != 2 {
-           eprintln!("Використання: {} \"вираз\"", args[0]);
-           std::process::exit(1);
-       }
-
-       let expression = &args[1];
-       let parsed = CalculatorParser::parse(Rule::expression, expression)
-           .expect("Помилка парсингу")
-           .next()
-           .unwrap();
-
-       let result = eval(parsed);
-       println!("Результат: {}", result);
-   }
-   ```
-
-2. **Тестування командного рядка**:
-   - Запустіть програму з виразом:
-     ```bash
-     cargo run "3 + 2 ^ (4 + 2) - 6"
-     ```
-   - Ви повинні побачити результат `61`.
+```rust
+impl Expr {
+    pub fn evaluate(&self) -> i32 {
+        match self {
+            Expr::Integer(value) => *value,
+            Expr::UnaryMinus(expr) => -expr.evaluate(),
+            Expr::BinOp { lhs, op, rhs } => {
+                let left = lhs.evaluate();
+                let right = rhs.evaluate();
+                match op {
+                    Op::Add => left + right,
+                    Op::Subtract => left - right,
+                    Op::Multiply => left * right,
+                    Op::Divide => left / right,
+                    Op::Modulo => left % right,
+                }
+            }
+        }
+    }
+}
+```
 
 ---
 
-Тепер у нас є повноцінний калькулятор, який підтримує цілі числа, операції `+`, `-`, `*`, `/`, `^` та дужки!
+### Крок 6: Викликати обчислення в `main`
+
+Після парсингу виразу у функції `main`, додайте обчислення результату і його вивід:
+
+```rust
+fn main() -> io::Result<()> {
+    for line in io::stdin().lock().lines() {
+        match CalculatorParser::parse(Rule::equation, &line?) {
+            Ok(mut pairs) => {
+                let expr = parse_expr(pairs.next().unwrap().into_inner());
+                println!("Result: {}", expr.evaluate());
+            }
+            Err(e) => {
+                eprintln!("Parse failed: {:?}", e);
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+### Як це працює:
+
+1. `Expr::evaluate` обробляє всі типи вузлів дерева:
+   - Якщо це `Integer`, повертає його значення.
+   - Якщо це `UnaryMinus`, обчислює значення дочірнього вузла і змінює його знак.
+   - Якщо це `BinOp`, обчислює значення лівого і правого дочірніх вузлів, а потім застосовує відповідну операцію.
+2. У `main` ви виводите як дерево розбору, так і обчислений результат.
+
+---
+
+### Результат
+
+Коли ви запустите програму з виразом:
+
+```
+-(2 + 5) * 16
+```
+
+Вивід буде:
+
+```
+Result: -112
+```
