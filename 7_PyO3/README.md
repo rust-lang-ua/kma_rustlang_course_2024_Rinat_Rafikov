@@ -5,9 +5,13 @@
 - Python 3.7 і вище (CPython, PyPy, та GraalPy)
 - Rust 1.63 і вище
 
+---
+
 ### Використання Rust з Python
 
 PyO3 можна використовувати для створення нативного модуля Python. Найпростіший спосіб спробувати це вперше - скористатися maturin. maturin - це інструмент для створення та публікації пакунків Python на основі Rust з мінімальною конфігурацією. На наступних кроках ви встановите maturin, згенеруєте та зберете новий пакунок Python, а потім запустите Python, щоб імпортувати та виконати функцію з пакунка.
+
+---
 
 ### Крок 1
 
@@ -89,11 +93,13 @@ deactivate
 
 ---
 
-і встановіть maturin у віртуальний каталог за допомогою менеджера пакетів Python pip:
+### Крок 2: Встановленя maturin у віртуальний каталог
 
 ```bash
 pip install maturin
 ```
+
+### Крок 3: Створеня проекту
 
 Все ще перебуваючи у цьому каталозі `password_hasher`, виконайте `maturin init`. Це призведе до створення нового коду пакунка. Коли вам буде запропоновано вибір прив'язок для використання, виберіть прив'язки pyo3:
 
@@ -131,6 +137,8 @@ pyo3 = { version = "0.22.5", features = ["extension-module"] }
 
 ---
 
+### Крок 4: Додавання залежностей
+
 Для нашого проекту треба додати деякі залежності.
 
 ```toml
@@ -149,7 +157,11 @@ rand = "0.8.5"
 crate-type = ["cdylib"]
 ```
 
-Пишемо просту реалізацію хешування паролю і верифікацію
+---
+
+### Крок 5: Хешування паролю
+
+Пишемо просту реалізацію хешування паролю і його верифікацію
 
 ```rust
 use argon2::{
@@ -192,55 +204,60 @@ fn password_hasher(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 ```
 
-#### Крок 2: Збірка модуля з `maturin`
+---
+
+#### Крок 6: Збірка модуля з `maturin`
 
 1. Зберіть і встановіть модуль у локальному середовищі Python:
 
-   ```bash
-   maturin develop
-   ```
+```bash
+maturin develop
+```
 
-   Ця команда створить і встановить модуль у Python.
+Ця команда створить і встановить модуль у Python.
 
 2. Перевірте, чи все працює:
 
 Ось як створити файл Python і запустити його після виконання `maturin develop`:
 
-### Кроки:
+#### Кроки:
 
 1. **Створіть Python-файл**:
 
    - У кореневій папці вашого проекту (де знаходиться `Cargo.toml`) створіть файл, наприклад, `test_password_hasher.py`.
    - Збережіть у нього код:
 
-     ```python
-     import password_hasher
+   ```python
+   import password_hasher
 
-     # Хешування паролю
-     hashed = password_hasher.hash_password("my_secure_password")
-     print("Hashed password:", hashed)
+   # Хешування паролю
+   hashed = password_hasher.hash_password("my_secure_password")
+   print("Hashed password:", hashed)
 
-     # Перевірка паролю
-     is_valid = password_hasher.verify_password("my_secure_password", hashed)
-     print("Is valid:", is_valid)
-     ```
+   # Перевірка паролю
+   is_valid = password_hasher.verify_password("my_secure_password", hashed)
+   print("Is valid:", is_valid)
+   ```
 
 2. **Запустіть файл**:
 
    - Відкрийте термінал у тому ж каталозі, де розташований `test_password_hasher.py`.
    - Виконайте команду:
-     ```bash
-     python test_password_hasher.py
-     ```
+
+   ```bash
+   python test_password_hasher.py
+   ```
 
 3. **Перевірте результат**:
    - У терміналі ви побачите щось подібне:
-     ```
-     Hashed password: $argon2id$v=19$m=19456,t=2,p=1$...
-     Is valid: True
-     ```
+   ```
+   Hashed password: $argon2id$v=19$m=19456,t=2,p=1$...
+   Is valid: True
+   ```
 
-#### Крок 3: Збірка модуля для розповсюдження
+---
+
+#### Крок 7: Збірка модуля для розповсюдження
 
 Якщо ви хочете створити розповсюджуваний модуль (наприклад, `.whl` файл), виконайте:
 
@@ -249,6 +266,8 @@ maturin build --release
 ```
 
 Це створить файл колеса (`.whl`) у папці `target/wheels`, який можна розповсюджувати або встановлювати в інших середовищах Python.
+
+---
 
 ### Підсумок
 
