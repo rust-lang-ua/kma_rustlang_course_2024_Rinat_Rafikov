@@ -55,9 +55,9 @@
 
 **Calculator example**
 
-We want our calculator to be able to parse simple equations that consist of integers and simple binary operators.
-Additionally, we want to support parenthesis and unary minus.
-For example:
+Ми хочемо, щоб наш калькулятор міг розбирати прості рівняння, які складаються з цілих чисел і простих бінарних операторів.
+Крім того, ми хочемо підтримувати дужки та унарний мінус.
+Наприклад:
 
 ```
 1 + 2 * 3
@@ -195,7 +195,7 @@ pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
 }
 ```
 
-Here's an example of how to use the parser.
+Ось приклад використання парсеру.
 
 ```rust
 fn main() -> io::Result<()> {
